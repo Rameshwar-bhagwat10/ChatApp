@@ -1,0 +1,19 @@
+{
+	"name": "@chat-app/worker",
+	"version": "0.1.0",
+	"private": true,
+	"scripts": {
+		"dev": "tsx watch src/worker.ts",
+		"build": "tsc -p tsconfig.json",
+		"start": "node dist/worker.js",
+		"lint": "eslint src --ext .ts",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@chat-app/config": "file:../../packages/config",
+		"@chat-app/types": "file:../../packages/types",
+		"@chat-app/utils": "file:../../packages/utils",
+		"bullmq": "^5.52.0",
+		"ioredis": "^5.6.1"
+	}
+}

@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "lib": ["ES2022"],
+    "moduleResolution": "Node",
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@chat-app/types": ["packages/types/index.ts"],
+      "@chat-app/types/*": ["packages/types/*"],
+      "@chat-app/utils": ["packages/utils/index.ts"],
+      "@chat-app/utils/*": ["packages/utils/*"],
+      "@chat-app/config": ["packages/config/index.ts"],
+      "@chat-app/config/*": ["packages/config/*"],
+      "@chat-app/ui": ["packages/ui/index.ts"]
+    },
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}

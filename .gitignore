@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+.turbo
+**/.turbo
+.env
+!.env.example
+**/dist
+**/.next
+coverage
+npm-debug.log*
