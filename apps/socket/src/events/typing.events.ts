@@ -1,5 +1,8 @@
 export const TYPING_EVENTS = {
-	typingStart: 'typing_start',
-	typingStop: 'typing_stop',
-	userTyping: 'user_typing',
+	typingStart: 'typing:start',
+	typingStop: 'typing:stop',
+	typingUpdated: 'typing:updated',
+	legacyTypingStart: 'typing_start',
+	legacyTypingStop: 'typing_stop',
+	legacyUserTyping: 'user_typing',
 } as const;

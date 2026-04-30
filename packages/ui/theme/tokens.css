@@ -1,0 +1,33 @@
+:root {
+	--background: 2 6 23;
+	--surface: 15 23 42;
+	--surface-elevated: 30 41 59;
+	--surface-overlay: 2 6 23;
+	--border: 51 65 85;
+	--text: 241 245 249;
+	--text-muted: 148 163 184;
+	--skeleton: 51 65 85;
+	--ring: 99 102 241;
+	--layout-sidebar-width: 84px;
+	--layout-chat-list-width: 360px;
+	--layout-max-width: 1600px;
+	--layout-mobile-chat-min-height: 55vh;
+	--chat-list-height-offset: 220px;
+}
+
+html.dark {
+	color-scheme: dark;
+}
+
+html.light {
+	color-scheme: light;
+	--background: 248 250 252;
+	--surface: 255 255 255;
+	--surface-elevated: 241 245 249;
+	--surface-overlay: 15 23 42;
+	--border: 203 213 225;
+	--text: 15 23 42;
+	--text-muted: 71 85 105;
+	--skeleton: 226 232 240;
+	--ring: 79 70 229;
+}

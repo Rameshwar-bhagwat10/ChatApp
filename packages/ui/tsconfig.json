@@ -2,8 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": ".",
-    "outDir": "dist"
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["index.ts"],
+  "include": ["index.ts", "components/**/*.tsx", "lib/**/*.ts", "theme/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

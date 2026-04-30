@@ -11,9 +11,13 @@
 	},
 	"dependencies": {
 		"@chat-app/types": "file:../../packages/types",
+		"@chat-app/ui": "file:../../packages/ui",
+		"axios": "^1.9.0",
 		"next": "^14.2.25",
 		"react": "^18.3.1",
-		"react-dom": "^18.3.1"
+		"react-dom": "^18.3.1",
+		"socket.io-client": "^4.8.1",
+		"zustand": "^4.5.2"
 	},
 	"devDependencies": {
 		"@types/react": "^18.3.18",
