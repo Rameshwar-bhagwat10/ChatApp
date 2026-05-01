@@ -1,0 +1,61 @@
+name: API Auth Postgres Integration
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "packages/config/**"
+      - "package-lock.json"
+      - ".github/workflows/api-auth-postgres.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/api/**"
+      - "packages/config/**"
+      - "package-lock.json"
+      - ".github/workflows/api-auth-postgres.yml"
+
+jobs:
+  auth-postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chat_app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chat_app_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run auth integration tests on real Postgres
+        run: npm run -w @chat-app/api test:postgres-real
+        env:
+          AUTH_REAL_POSTGRES_TEST: "1"
+          AUTH_STORAGE_BACKEND: postgres
+          AUTH_TRUST_PROXY: "true"
+          AUTH_LOGIN_RATE_LIMIT_MAX: "10"
+          AUTH_REFRESH_RATE_LIMIT_MAX: "20"
+          AUTH_RATE_LIMIT_WINDOW_MS: "60000"
+          AUTH_ADMIN_API_KEY: "ci-admin-api-key-that-is-at-least-thirty-two-chars"
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_app_test
+          REDIS_URL: redis://127.0.0.1:6379
+          JWT_SECRET: "ci-jwt-secret-with-at-least-thirty-two-characters"
+          NEXT_PUBLIC_API_URL: http://localhost:4000

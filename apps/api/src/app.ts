@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import { apiConfig } from './config/env';
 import { errorMiddleware } from './middlewares/error.middleware';
 import { authRoutes } from './modules/auth/auth.routes';
 import { chatRoutes } from './modules/chat/chat.routes';
@@ -9,6 +10,7 @@ import { userRoutes } from './modules/user/user.routes';
 
 export const app = express();
 
+app.set('trust proxy', apiConfig.trustProxy);
 app.use(cors());
 app.use(express.json());
 

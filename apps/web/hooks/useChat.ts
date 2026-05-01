@@ -17,6 +17,13 @@ interface UseChatOptions {
 	initialChatId?: string;
 	socket: ChatSocketClient | null;
 	isRealtimeEnabled: boolean;
+	authUser?: {
+		id: string;
+		email: string;
+		username: string;
+		created_at?: string;
+		createdAt?: string;
+	} | null;
 }
 
 const resolveDirectMember = (chat: Chat, currentUserId: string) =>
@@ -55,7 +62,7 @@ const resolveChatOnlineStatus = (
 
 const emptyMessages: never[] = [];
 
-export const useChat = ({ initialChatId, socket, isRealtimeEnabled }: UseChatOptions) => {
+export const useChat = ({ initialChatId, socket, isRealtimeEnabled, authUser }: UseChatOptions) => {
 	const currentUserId = useAuthStore((state) => state.currentUserId);
 	const toggleTheme = useAuthStore((state) => state.toggleTheme);
 	const theme = useAuthStore((state) => state.theme);
@@ -83,6 +90,8 @@ export const useChat = ({ initialChatId, socket, isRealtimeEnabled }: UseChatOpt
 	const messagesByChat = useMessageStore((state) => state.messagesByChat);
 
 	const [loadError, setLoadError] = useState<string | null>(null);
+
+	const resolvedUserId = authUser?.id ?? currentUserId;
 
 	const usersById = useMemo(
 		() => new Map<string, User>(users.map((user) => [user.id, user])),
@@ -186,7 +195,7 @@ export const useChat = ({ initialChatId, socket, isRealtimeEnabled }: UseChatOpt
 					return true;
 				}
 
-				return resolveChatTitle(chat, currentUserId, usersById)
+				return resolveChatTitle(chat, resolvedUserId, usersById)
 					.toLowerCase()
 					.includes(normalizedSearchQuery);
 			})
@@ -196,15 +205,15 @@ export const useChat = ({ initialChatId, socket, isRealtimeEnabled }: UseChatOpt
 
 				return {
 					id: chat.id,
-					title: resolveChatTitle(chat, currentUserId, usersById),
-					avatarUrl: resolveChatAvatar(chat, currentUserId, usersById),
+					title: resolveChatTitle(chat, resolvedUserId, usersById),
+					avatarUrl: resolveChatAvatar(chat, resolvedUserId, usersById),
 					lastMessage: lastMessage?.content ?? 'No messages yet',
 					lastMessageAt: lastMessage?.createdAt ?? chat.updatedAt,
 					unreadCount: unreadByChat[chat.id] ?? 0,
-					isOnline: resolveChatOnlineStatus(chat, currentUserId, onlineUserSet),
+					isOnline: resolveChatOnlineStatus(chat, resolvedUserId, onlineUserSet),
 				};
 			});
-	}, [chats, currentUserId, messagesByChat, normalizedSearchQuery, onlineUserSet, unreadByChat, usersById]);
+	}, [chats, resolvedUserId, messagesByChat, normalizedSearchQuery, onlineUserSet, unreadByChat, usersById]);
 
 	const activeChat = useMemo<ActiveChatViewModel | null>(() => {
 		if (!activeChatId) {
@@ -226,16 +235,16 @@ export const useChat = ({ initialChatId, socket, isRealtimeEnabled }: UseChatOpt
 
 		return {
 			id: chat.id,
-			title: resolveChatTitle(chat, currentUserId, usersById),
+			title: resolveChatTitle(chat, resolvedUserId, usersById),
 			subtitle,
-			avatarUrl: resolveChatAvatar(chat, currentUserId, usersById),
-			isOnline: resolveChatOnlineStatus(chat, currentUserId, onlineUserSet),
+			avatarUrl: resolveChatAvatar(chat, resolvedUserId, usersById),
+			isOnline: resolveChatOnlineStatus(chat, resolvedUserId, onlineUserSet),
 			chat,
 			members,
 		};
-	}, [activeChatId, chats, currentUserId, onlineUserSet, usersById]);
+	}, [activeChatId, chats, resolvedUserId, onlineUserSet, usersById]);
 
-	const currentUser = usersById.get(currentUserId) ?? null;
+	const currentUser = usersById.get(resolvedUserId) ?? null;
 
 	const selectChat = (chatId: string) => {
 		setActiveChat(chatId);

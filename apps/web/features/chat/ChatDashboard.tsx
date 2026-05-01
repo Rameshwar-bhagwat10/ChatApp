@@ -12,11 +12,20 @@ import { useMessages } from '../../hooks/useMessages';
 import { useSocket } from '../../hooks/useSocket';
 import { cn } from '../../lib/utils';
 
-interface ChatDashboardProps {
-	initialChatId?: string;
+interface AuthUser {
+	id: string;
+	email: string;
+	username: string;
+	created_at?: string;
+	createdAt?: string;
 }
 
-export const ChatDashboard = ({ initialChatId }: ChatDashboardProps) => {
+interface ChatDashboardProps {
+	initialChatId?: string;
+	authUser?: AuthUser | null;
+}
+
+export const ChatDashboard = ({ initialChatId, authUser }: ChatDashboardProps) => {
 	const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 	const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
 	const { socket, isConnected, isRealtimeEnabled, connectionLabel } = useSocket();
@@ -38,6 +47,7 @@ export const ChatDashboard = ({ initialChatId }: ChatDashboardProps) => {
 		initialChatId,
 		socket,
 		isRealtimeEnabled,
+		authUser,
 	});
 	const {
 		draft,
