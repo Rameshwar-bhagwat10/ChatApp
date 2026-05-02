@@ -8,62 +8,115 @@ datasource db {
 }
 
 model User {
-  id           String         @id @db.Uuid
-  email        String         @unique
-  username     String         @unique
-  passwordHash String         @map("password_hash")
-  createdAt    DateTime       @default(now()) @db.Timestamptz(6) @map("created_at")
-  updatedAt    DateTime       @default(now()) @db.Timestamptz(6) @map("updated_at")
-  refreshTokens RefreshToken[]
+  id              String          @id @default(uuid()) @db.Uuid
+  email           String          @unique
+  username        String          @unique
+  passwordHash    String          @map("password_hash")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @default(now()) @map("updated_at")
+
+  chats           ChatMember[]
+  messages        Message[]
+  messageStatuses MessageStatus[]
+  refreshTokens   RefreshToken[]
 
   @@map("users")
 }
 
+model Chat {
+  id        String       @id @default(uuid()) @db.Uuid
+  type      ChatType
+  createdAt DateTime     @default(now())
+
+  members   ChatMember[]
+  messages  Message[]
+}
+
+model ChatMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  chatId    String   @db.Uuid
+  userId    String   @db.Uuid
+  role      Role     @default(MEMBER)
+  joinedAt  DateTime @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([chatId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id        String      @id @default(uuid()) @db.Uuid
+  chatId    String      @db.Uuid
+  senderId  String      @db.Uuid
+  content   String
+  type      MessageType @default(TEXT)
+  createdAt DateTime    @default(now())
+
+  chat   Chat @relation(fields: [chatId], references: [id])
+  sender User @relation(fields: [senderId], references: [id])
+
+  statuses MessageStatus[]
+
+  @@index([chatId])
+  @@index([chatId, createdAt])
+}
+
+model MessageStatus {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  status    Status
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message Message @relation(fields: [messageId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
 model RefreshToken {
-  id                String    @id @db.Uuid
+  id                String    @id @default(uuid()) @db.Uuid
+  token             String    @unique @map("token_hash")
   userId            String    @db.Uuid @map("user_id")
-  tokenFamilyId     String    @db.Uuid @map("token_family_id")
-  tokenHash         String    @unique @map("token_hash")
-  expiresAt         DateTime  @db.Timestamptz(6) @map("expires_at")
-  createdAt         DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
-  lastUsedAt        DateTime? @db.Timestamptz(6) @map("last_used_at")
-  revokedAt         DateTime? @db.Timestamptz(6) @map("revoked_at")
+  expiresAt         DateTime  @map("expires_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  tokenFamilyId     String    @default(uuid()) @db.Uuid @map("token_family_id")
+  lastUsedAt        DateTime? @map("last_used_at")
+  revokedAt         DateTime? @map("revoked_at")
   replacedByTokenId String?   @db.Uuid @map("replaced_by_token_id")
   userAgent         String?   @map("user_agent")
   ipAddress         String?   @map("ip_address")
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId], map: "idx_refresh_tokens_user_id")
-  @@index([expiresAt], map: "idx_refresh_tokens_expires_at")
-  @@index([tokenFamilyId], map: "idx_refresh_tokens_token_family_id")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([tokenFamilyId])
   @@map("refresh_tokens")
 }
 
-model AuthRateLimit {
-  routeKey    String   @map("route_key")
-  identifier  String
-  windowStart DateTime @db.Timestamptz(6) @map("window_start")
-  attemptCount Int     @default(1) @map("attempt_count")
-  updatedAt   DateTime @default(now()) @db.Timestamptz(6) @map("updated_at")
-
-  @@id([routeKey, identifier, windowStart])
-  @@map("auth_rate_limits")
+enum ChatType {
+  PRIVATE
+  GROUP
 }
 
-model AuthAdminAuditLog {
-  id                 String   @id @db.Uuid
-  action             String
-  actorType          String   @map("actor_type")
-  actorIdentifier    String   @map("actor_identifier")
-  actorIpAddress     String?  @map("actor_ip_address")
-  actorUserAgent     String?  @map("actor_user_agent")
-  targetUserId       String   @db.Uuid @map("target_user_id")
-  status             String
-  revokedSessionCount Int     @default(0) @map("revoked_session_count")
-  errorMessage       String?  @map("error_message")
-  createdAt          DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+enum Role {
+  ADMIN
+  MEMBER
+}
 
-  @@index([targetUserId], map: "idx_auth_admin_audit_logs_target_user_id")
-  @@index([createdAt], map: "idx_auth_admin_audit_logs_created_at")
-  @@map("auth_admin_audit_logs")
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+}
+
+enum Status {
+  SENT
+  DELIVERED
+  SEEN
 }

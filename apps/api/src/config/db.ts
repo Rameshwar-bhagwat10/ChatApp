@@ -28,6 +28,21 @@ let cleanupIntervalInitialized = false;
 const isPgMemConnectionString = (connectionString: string): boolean =>
 	connectionString.startsWith('pg-mem://');
 
+const toDatabaseSchema = (connectionString: string): string => {
+	if (isPgMemConnectionString(connectionString)) {
+		return 'public';
+	}
+
+	const parsedConnection = new URL(connectionString);
+	const schema = parsedConnection.searchParams.get('schema')?.trim() || 'public';
+
+	if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+		throw new Error(`Invalid schema value in DATABASE_URL: ${schema}`);
+	}
+
+	return schema;
+};
+
 const createDatabasePool = async (): Promise<DatabasePool> => {
 	if (isPgMemConnectionString(apiConfig.DATABASE_URL)) {
 		const { newDb } = await import('pg-mem');
@@ -41,6 +56,7 @@ const createDatabasePool = async (): Promise<DatabasePool> => {
 
 	const postgresPool = new Pool({
 		connectionString: apiConfig.DATABASE_URL,
+		options: `-c search_path=${toDatabaseSchema(apiConfig.DATABASE_URL)}`,
 		max: 20,
 		idleTimeoutMillis: 30_000,
 		connectionTimeoutMillis: 10_000,
