@@ -25,7 +25,13 @@ app.use('/api/v1/messages', messageRoutes);
 app.use('/api/v1/media', mediaRoutes);
 
 app.use((_request, response) => {
-	response.status(404).json({ message: 'Route not found' });
+	response.status(404).json({
+		success: false,
+		error: {
+			message: 'Route not found',
+		},
+		message: 'Route not found',
+	});
 });
 
 app.use(errorMiddleware);

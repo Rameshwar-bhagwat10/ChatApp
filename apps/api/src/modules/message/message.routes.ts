@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middlewares/auth.middleware';
-import { createMessageController, listMessagesController } from './message.controller';
+import { createMessageController, getMessagesByChatController } from './message.controller';
 
 export const messageRoutes = Router();
 
-messageRoutes.get('/:chatId', listMessagesController);
-messageRoutes.post('/:chatId', authMiddleware, createMessageController);
+messageRoutes.post('/', authMiddleware, createMessageController);
+messageRoutes.get('/:chatId', authMiddleware, getMessagesByChatController);

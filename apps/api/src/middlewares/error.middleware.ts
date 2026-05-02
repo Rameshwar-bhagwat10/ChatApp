@@ -17,9 +17,14 @@ const hasStatusCode = (error: unknown): error is ErrorWithStatusCode => {
 export const errorMiddleware: ErrorRequestHandler = (error, _request, response, _next) => {
 	const statusCode = hasStatusCode(error) ? error.statusCode : 500;
 	const message = error instanceof Error ? error.message : 'Unexpected server error';
+	const sanitizedMessage = statusCode >= 500 ? 'Internal server error' : message;
 
 	logger.error('Unhandled API error', { message, statusCode });
 	response.status(statusCode).json({
-		message: statusCode >= 500 ? 'Internal server error' : message,
+		success: false,
+		error: {
+			message: sanitizedMessage,
+		},
+		message: sanitizedMessage,
 	});
 };

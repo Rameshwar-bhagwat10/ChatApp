@@ -1,5 +1,10 @@
 import type { RequestHandler } from 'express';
-import { messageService, type CreateMessageInput } from './message.service';
+import { messageService } from './message.service';
+import {
+	parseCreateMessagePayload,
+	parseMessageChatPathParams,
+	parseMessagePaginationQuery,
+} from './message.validation';
 
 interface ErrorWithStatusCode extends Error {
 	statusCode: number;
@@ -11,97 +16,52 @@ const createError = (statusCode: number, message: string): ErrorWithStatusCode =
 	return error;
 };
 
-const parseMessageType = (value: unknown): CreateMessageInput['type'] => {
-	if (typeof value === 'string') {
-		const normalized = value.trim().toUpperCase();
-		if (normalized === 'TEXT' || normalized === 'IMAGE' || normalized === 'FILE') {
-			return normalized;
-		}
+const getAuthenticatedUserId = (request: Parameters<RequestHandler>[0]): string => {
+	const userId = request.authUser?.userId;
+
+	if (!userId) {
+		throw createError(401, 'Unauthorized');
 	}
 
-	return 'TEXT';
+	return userId;
 };
 
-const getQueryValue = (value: unknown): string | null => {
-	if (typeof value === 'string') {
-		return value;
-	}
-
-	if (Array.isArray(value) && typeof value[0] === 'string') {
-		return value[0];
-	}
-
-	return null;
-};
-
-const parseCursor = (queryValue: unknown): string | null => {
-	const value = getQueryValue(queryValue);
-	if (!value) {
-		return null;
-	}
-
-	const normalized = value.trim();
-	return normalized.length > 0 ? normalized : null;
-};
-
-const parseLimit = (queryValue: unknown): number | undefined => {
-	const value = getQueryValue(queryValue);
-
-	if (!value) {
-		return undefined;
-	}
-
-	const parsed = Number.parseInt(value, 10);
-	return Number.isInteger(parsed) ? parsed : undefined;
-};
-
-export const listMessagesController: RequestHandler = async (request, response, next) => {
+export const createMessageController: RequestHandler = async (request, response, next) => {
 	try {
-		const chatId = request.params.chatId;
-
-		if (!chatId) {
-			response.status(400).json({ message: 'chatId is required' });
-			return;
-		}
-
-		const page = await messageService.getMessagesByChat({
-			chatId,
-			cursor: parseCursor(request.query.cursor),
-			limit: parseLimit(request.query.limit),
+		const senderId = getAuthenticatedUserId(request);
+		const payload = parseCreateMessagePayload(request.body);
+		const message = await messageService.createMessage({
+			chatId: payload.chatId,
+			senderId,
+			content: payload.content,
+			type: payload.type,
 		});
-		response.status(200).json(page);
+
+		response.status(201).json({
+			success: true,
+			data: message,
+		});
 	} catch (error) {
 		next(error);
 	}
 };
 
-export const createMessageController: RequestHandler = async (request, response, next) => {
+export const getMessagesByChatController: RequestHandler = async (request, response, next) => {
 	try {
-		const chatId = request.params.chatId;
-		const authenticatedUser = request.authUser;
-
-		if (!chatId) {
-			throw createError(400, 'chatId is required');
-		}
-
-		if (!authenticatedUser) {
-			throw createError(401, 'Unauthorized');
-		}
-
-		const body = request.body as { content?: unknown; type?: unknown };
-
-		if (typeof body.content !== 'string') {
-			throw createError(400, 'content is required');
-		}
-
-		const message = await messageService.createMessage({
+		const userId = getAuthenticatedUserId(request);
+		const { chatId } = parseMessageChatPathParams(request.params);
+		const { page, limit } = parseMessagePaginationQuery(request.query);
+		const result = await messageService.getMessagesByChat({
 			chatId,
-			senderId: authenticatedUser.userId,
-			content: body.content,
-			type: parseMessageType(body.type),
+			userId,
+			page,
+			limit,
 		});
 
-		response.status(201).json(message);
+		response.status(200).json({
+			success: true,
+			data: result,
+		});
 	} catch (error) {
 		next(error);
 	}

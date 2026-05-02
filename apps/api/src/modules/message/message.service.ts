@@ -1,8 +1,36 @@
-import { MessageType, Status, type Message, type MessageStatus } from '@prisma/client';
+import { MessageType, Status, type Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma/client';
 
 interface ErrorWithStatusCode extends Error {
 	statusCode: number;
+}
+
+interface ServiceUserSummary {
+	id: string;
+	email: string;
+	username: string;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+interface ServiceMessageStatus {
+	id: string;
+	messageId: string;
+	userId: string;
+	status: Status;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
+export interface MessageDetails {
+	id: string;
+	chatId: string;
+	senderId: string;
+	content: string;
+	type: MessageType;
+	createdAt: Date;
+	sender: ServiceUserSummary;
+	statuses: ServiceMessageStatus[];
 }
 
 export interface CreateMessageInput {
@@ -14,24 +42,20 @@ export interface CreateMessageInput {
 
 export interface GetMessagesByChatInput {
 	chatId: string;
-	cursor?: string | null;
-	limit?: number;
+	userId: string;
+	page: number;
+	limit: number;
 }
 
-export type MessageWithStatuses = Message & {
-	statuses: MessageStatus[];
-};
-
-export interface MessagePageResult {
-	messages: MessageWithStatuses[];
-	nextCursor: string | null;
-	hasMore: boolean;
+export interface MessageListResult {
+	messages: MessageDetails[];
+	pagination: {
+		page: number;
+		limit: number;
+		total: number;
+		totalPages: number;
+	};
 }
-
-const DEFAULT_MESSAGE_LIMIT = 100;
-const MAX_MESSAGE_LIMIT = 200;
-const UUID_PATTERN =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const createError = (statusCode: number, message: string): ErrorWithStatusCode => {
 	const error = new Error(message) as ErrorWithStatusCode;
@@ -39,12 +63,56 @@ const createError = (statusCode: number, message: string): ErrorWithStatusCode =
 	return error;
 };
 
-const normalizeLimit = (limit: number | undefined): number => {
-	if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) {
-		return DEFAULT_MESSAGE_LIMIT;
-	}
+const messageInclude = {
+	sender: {
+		select: {
+			id: true,
+			email: true,
+			username: true,
+			createdAt: true,
+			updatedAt: true,
+		},
+	},
+	statuses: {
+		orderBy: { createdAt: 'asc' },
+	},
+} satisfies Prisma.MessageInclude;
 
-	return Math.min(limit, MAX_MESSAGE_LIMIT);
+type MessageWithRelations = Prisma.MessageGetPayload<{
+	include: typeof messageInclude;
+}>;
+
+const toMessageDetails = (message: MessageWithRelations): MessageDetails => ({
+	id: message.id,
+	chatId: message.chatId,
+	senderId: message.senderId,
+	content: message.content,
+	type: message.type,
+	createdAt: message.createdAt,
+	sender: message.sender,
+	statuses: message.statuses,
+});
+
+const ensureMembership = async ({
+	chatId,
+	userId,
+}: {
+	chatId: string;
+	userId: string;
+}): Promise<void> => {
+	const membership = await prisma.chatMember.findUnique({
+		where: {
+			chatId_userId: {
+				chatId,
+				userId,
+			},
+		},
+		select: { id: true },
+	});
+
+	if (!membership) {
+		throw createError(403, 'Forbidden');
+	}
 };
 
 const createMessage = async ({
@@ -52,30 +120,24 @@ const createMessage = async ({
 	senderId,
 	content,
 	type = MessageType.TEXT,
-}: CreateMessageInput): Promise<MessageWithStatuses> => {
+}: CreateMessageInput): Promise<MessageDetails> => {
 	const trimmedContent = content.trim();
 
 	if (trimmedContent.length === 0) {
-		throw createError(400, 'Message content is required');
+		throw createError(400, 'content is required');
 	}
 
-	return prisma.$transaction(async (transaction) => {
-		const chatMembers = await transaction.chatMember.findMany({
+	const message = await prisma.$transaction(async (transaction) => {
+		const members = await transaction.chatMember.findMany({
 			where: { chatId },
 			select: { userId: true },
 		});
 
-		if (chatMembers.length === 0) {
-			throw createError(404, 'Chat not found or has no members');
+		if (!members.some((member) => member.userId === senderId)) {
+			throw createError(403, 'Forbidden');
 		}
 
-		const senderMembership = chatMembers.find((member) => member.userId === senderId);
-
-		if (!senderMembership) {
-			throw createError(403, 'Sender is not a member of this chat');
-		}
-
-		const message = await transaction.message.create({
+		const createdMessage = await transaction.message.create({
 			data: {
 				chatId,
 				senderId,
@@ -85,52 +147,58 @@ const createMessage = async ({
 		});
 
 		await transaction.messageStatus.createMany({
-			data: chatMembers.map((member) => ({
-				messageId: message.id,
+			data: members.map((member) => ({
+				messageId: createdMessage.id,
 				userId: member.userId,
 				status: member.userId === senderId ? Status.SEEN : Status.SENT,
 			})),
 		});
 
 		return transaction.message.findUniqueOrThrow({
-			where: { id: message.id },
-			include: { statuses: true },
+			where: {
+				id: createdMessage.id,
+			},
+			include: messageInclude,
 		});
 	});
+
+	return toMessageDetails(message);
 };
 
 const getMessagesByChat = async ({
 	chatId,
-	cursor = null,
+	userId,
+	page,
 	limit,
-}: GetMessagesByChatInput): Promise<MessagePageResult> => {
-	if (cursor && !UUID_PATTERN.test(cursor)) {
-		throw createError(400, 'Invalid message cursor');
-	}
-
-	const take = normalizeLimit(limit) + 1;
-	const messages = await prisma.message.findMany({
-		where: { chatId },
-		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-		take,
-		...(cursor
-			? {
-					cursor: { id: cursor },
-					skip: 1,
-				}
-			: {}),
-		include: { statuses: true },
+}: GetMessagesByChatInput): Promise<MessageListResult> => {
+	await ensureMembership({
+		chatId,
+		userId,
 	});
 
-	const effectiveLimit = take - 1;
-	const hasMore = messages.length > effectiveLimit;
-	const pagedMessages = hasMore ? messages.slice(0, effectiveLimit) : messages;
-	const lastMessage = pagedMessages[pagedMessages.length - 1];
+	const skip = (page - 1) * limit;
+
+	const [total, messages] = await prisma.$transaction([
+		prisma.message.count({
+			where: { chatId },
+		}),
+		prisma.message.findMany({
+			where: { chatId },
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+			skip,
+			take: limit,
+			include: messageInclude,
+		}),
+	]);
 
 	return {
-		messages: pagedMessages,
-		nextCursor: hasMore && lastMessage ? lastMessage.id : null,
-		hasMore,
+		messages: messages.map((message) => toMessageDetails(message)),
+		pagination: {
+			page,
+			limit,
+			total,
+			totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+		},
 	};
 };
 

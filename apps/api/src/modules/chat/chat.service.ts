@@ -1,41 +1,49 @@
-import { ChatType, Prisma, Role, type Chat, type ChatMember } from '@prisma/client';
+import { ChatType, Role, type Prisma } from '@prisma/client';
 import { prisma } from '../../database/prisma/client';
+import type { CreateChatPayload } from './chat.validation';
 
 interface ErrorWithStatusCode extends Error {
 	statusCode: number;
 }
 
-export interface CreateChatInput {
-	type: ChatType;
-	memberIds: string[];
+interface ServiceUserSummary {
+	id: string;
+	email: string;
+	username: string;
+	createdAt: Date;
+	updatedAt: Date;
 }
 
-export interface AddUserToChatInput {
+interface ServiceChatMember {
+	id: string;
 	chatId: string;
 	userId: string;
-	role?: Role;
+	role: Role;
+	joinedAt: Date;
+	user: ServiceUserSummary;
 }
 
-export interface GetUserChatsInput {
-	userId: string;
-	cursor?: string | null;
-	limit?: number;
+interface ServiceMessageSummary {
+	id: string;
+	chatId: string;
+	senderId: string;
+	content: string;
+	type: 'TEXT' | 'IMAGE' | 'FILE';
+	createdAt: Date;
+	sender: ServiceUserSummary;
 }
 
-export type ChatWithMembers = Chat & {
-	members: ChatMember[];
-};
-
-export interface ChatPageResult {
-	chats: ChatWithMembers[];
-	nextCursor: string | null;
-	hasMore: boolean;
+export interface ChatDetails {
+	id: string;
+	type: ChatType;
+	createdAt: Date;
+	members: ServiceChatMember[];
+	lastMessage: ServiceMessageSummary | null;
 }
 
-const DEFAULT_CHAT_LIMIT = 50;
-const MAX_CHAT_LIMIT = 100;
-const UUID_PATTERN =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+interface CreateChatInput extends CreateChatPayload {
+	requesterUserId: string;
+}
 
 const createError = (statusCode: number, message: string): ErrorWithStatusCode => {
 	const error = new Error(message) as ErrorWithStatusCode;
@@ -43,71 +51,134 @@ const createError = (statusCode: number, message: string): ErrorWithStatusCode =
 	return error;
 };
 
-const normalizeLimit = (limit: number | undefined): number => {
-	if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) {
-		return DEFAULT_CHAT_LIMIT;
-	}
+const chatInclude = {
+	members: {
+		orderBy: { joinedAt: 'asc' },
+		include: {
+			user: {
+				select: {
+					id: true,
+					email: true,
+					username: true,
+					createdAt: true,
+					updatedAt: true,
+				},
+			},
+		},
+	},
+	messages: {
+		orderBy: { createdAt: 'desc' },
+		take: 1,
+		include: {
+			sender: {
+				select: {
+					id: true,
+					email: true,
+					username: true,
+					createdAt: true,
+					updatedAt: true,
+				},
+			},
+		},
+	},
+} satisfies Prisma.ChatInclude;
 
-	return Math.min(limit, MAX_CHAT_LIMIT);
-};
+type ChatWithMembersAndLastMessage = Prisma.ChatGetPayload<{
+	include: typeof chatInclude;
+}>;
 
-const normalizeMemberIds = (memberIds: string[]): string[] =>
+const normalizeMemberIds = (userIds: string[]): string[] =>
 	Array.from(
 		new Set(
-			memberIds
-				.map((memberId) => memberId.trim())
-				.filter((memberId) => memberId.length > 0),
+			userIds
+				.map((userId) => userId.trim())
+				.filter((userId) => userId.length > 0),
 		),
 	);
 
-const assertValidCreateChatInput = ({ type, memberIds }: CreateChatInput): void => {
+const validateChatParticipants = ({
+	type,
+	memberIds,
+	requesterUserId,
+}: {
+	type: ChatType;
+	memberIds: string[];
+	requesterUserId: string;
+}): void => {
+	if (!memberIds.includes(requesterUserId)) {
+		throw createError(400, 'Authenticated user must be included in userIds');
+	}
+
 	if (type === ChatType.PRIVATE && memberIds.length !== 2) {
-		throw createError(400, 'Private chats require exactly 2 members');
+		throw createError(400, 'PRIVATE chat requires exactly 2 users');
 	}
 
 	if (type === ChatType.GROUP && memberIds.length < 2) {
-		throw createError(400, 'Group chats require at least 2 members');
+		throw createError(400, 'GROUP chat requires at least 2 users');
 	}
 };
 
-const createChat = async (input: CreateChatInput): Promise<ChatWithMembers> => {
-	const normalizedMemberIds = normalizeMemberIds(input.memberIds);
-	assertValidCreateChatInput({ type: input.type, memberIds: normalizedMemberIds });
-
-	try {
-		return await prisma.chat.create({
-			data: {
-				type: input.type,
-				members: {
-					create: normalizedMemberIds.map((userId, index) => ({
-						userId,
-						role: input.type === ChatType.GROUP && index === 0 ? Role.ADMIN : Role.MEMBER,
-					})),
-				},
+const ensureUsersExist = async (memberIds: string[]): Promise<void> => {
+	const existingUsers = await prisma.user.findMany({
+		where: {
+			id: {
+				in: memberIds,
 			},
-			include: {
-				members: true,
-			},
-		});
-	} catch (error) {
-		if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-			throw createError(400, 'One or more member IDs do not exist');
-		}
+		},
+		select: {
+			id: true,
+		},
+	});
 
-		throw error;
+	if (existingUsers.length !== memberIds.length) {
+		throw createError(400, 'One or more users do not exist');
 	}
 };
 
-const getUserChats = async ({
-	userId,
-	cursor = null,
-	limit,
-}: GetUserChatsInput): Promise<ChatPageResult> => {
-	if (cursor && !UUID_PATTERN.test(cursor)) {
-		throw createError(400, 'Invalid chat cursor');
-	}
+const toChatDetails = (chat: ChatWithMembersAndLastMessage): ChatDetails => {
+	const latestMessage = chat.messages[0];
 
-	const take = normalizeLimit(limit) + 1;
+	return {
+		id: chat.id,
+		type: chat.type,
+		createdAt: chat.createdAt,
+		members: chat.members,
+		lastMessage: latestMessage
+			? {
+					id: latestMessage.id,
+					chatId: latestMessage.chatId,
+					senderId: latestMessage.senderId,
+					content: latestMessage.content,
+					type: latestMessage.type,
+					createdAt: latestMessage.createdAt,
+					sender: latestMessage.sender,
+				}
+			: null,
+	};
+};
+
+const createChat = async ({ type, userIds, requesterUserId }: CreateChatInput): Promise<ChatDetails> => {
+	const memberIds = normalizeMemberIds(userIds);
+	validateChatParticipants({ type, memberIds, requesterUserId });
+	await ensureUsersExist(memberIds);
+
+	const chat = await prisma.chat.create({
+		data: {
+			type,
+			members: {
+				create: memberIds.map((userId) => ({
+					userId,
+					role: type === ChatType.GROUP && userId === requesterUserId ? Role.ADMIN : Role.MEMBER,
+				})),
+			},
+		},
+		include: chatInclude,
+	});
+
+	return toChatDetails(chat);
+};
+
+const getUserChats = async (userId: string): Promise<ChatDetails[]> => {
 	const chats = await prisma.chat.findMany({
 		where: {
 			members: {
@@ -116,81 +187,44 @@ const getUserChats = async ({
 				},
 			},
 		},
-		include: {
-			members: true,
-		},
-		orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-		take,
-		...(cursor
-			? {
-					cursor: { id: cursor },
-					skip: 1,
-				}
-			: {}),
+		include: chatInclude,
 	});
 
-	const effectiveLimit = take - 1;
-	const hasMore = chats.length > effectiveLimit;
-	const pagedChats = hasMore ? chats.slice(0, effectiveLimit) : chats;
-	const lastChat = pagedChats[pagedChats.length - 1];
-
-	return {
-		chats: pagedChats,
-		nextCursor: hasMore && lastChat ? lastChat.id : null,
-		hasMore,
-	};
+	return chats
+		.map((chat) => toChatDetails(chat))
+		.sort((left, right) => {
+			const leftActivity = left.lastMessage?.createdAt ?? left.createdAt;
+			const rightActivity = right.lastMessage?.createdAt ?? right.createdAt;
+			return rightActivity.getTime() - leftActivity.getTime();
+		});
 };
 
-const addUserToChat = async ({
+const getChatById = async ({
 	chatId,
 	userId,
-	role = Role.MEMBER,
-}: AddUserToChatInput): Promise<ChatMember> => {
-	const chat = await prisma.chat.findUnique({
-		where: { id: chatId },
-		select: { id: true },
+}: {
+	chatId: string;
+	userId: string;
+}): Promise<ChatDetails> => {
+	const chat = await prisma.chat.findFirst({
+		where: {
+			id: chatId,
+			members: {
+				some: { userId },
+			},
+		},
+		include: chatInclude,
 	});
 
 	if (!chat) {
-		throw createError(404, 'Chat not found');
+		throw createError(403, 'Forbidden');
 	}
 
-	try {
-		return await prisma.chatMember.create({
-			data: {
-				chatId,
-				userId,
-				role,
-			},
-		});
-	} catch (error) {
-		if (error instanceof Prisma.PrismaClientKnownRequestError) {
-			if (error.code === 'P2002') {
-				throw createError(409, 'User is already a member of this chat');
-			}
-
-			if (error.code === 'P2003') {
-				throw createError(400, 'User does not exist');
-			}
-		}
-
-		throw error;
-	}
+	return toChatDetails(chat);
 };
-
-const listChats = async (): Promise<ChatWithMembers[]> =>
-	prisma.chat.findMany({
-		include: {
-			members: true,
-		},
-		orderBy: {
-			createdAt: 'desc',
-		},
-	});
 
 export const chatService = {
 	createChat,
 	getUserChats,
-	addUserToChat,
-	listChats,
+	getChatById,
 };
